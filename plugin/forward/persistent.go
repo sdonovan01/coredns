@@ -21,7 +21,7 @@ type connErr struct {
 	cached bool
 }
 
-// connType is used to ask for a new connection from the connection manager.
+// connReq is used to request for a new connection from the connection manager.
 type connReq struct {
 	proto     string
 	tlsConfig *tls.Config
@@ -29,7 +29,7 @@ type connReq struct {
 
 // transport hold the persistent cache.
 type transport struct {
-	conns  map[string][]*persistConn //  Buckets for udp, tcp and tcp-tls.
+	conns  map[string][]*persistConn // Buckets for udp, tcp and tcp-tls.
 	expire time.Duration             // After this duration a connection is expired.
 	addr   string
 

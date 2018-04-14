@@ -12,6 +12,10 @@ import (
 
 // Proxy defines an upstream host.
 type Proxy struct {
+	// Put in the beginning of this struct because of alignment on ARM (for instance).
+	avgRtt int64
+	fails  uint32
+
 	addr      string
 	client    *dns.Client
 	tlsConfig *tls.Config
@@ -22,9 +26,6 @@ type Proxy struct {
 
 	// health checking
 	probe *up.Probe
-	fails uint32
-
-	avgRtt int64
 }
 
 // NewProxy returns a new proxy.
