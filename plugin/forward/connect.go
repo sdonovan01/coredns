@@ -18,9 +18,17 @@ import (
 
 func (p *Proxy) readTimeout() time.Duration {
 	rtt := time.Duration(atomic.LoadInt64(&p.avgRtt))
+
 	if rtt < timeout/2 {
 		return 2 * rtt
 	}
+	if rtt < minTimeout {
+		avg = minTimeout
+	}
+	if rtt > maxTimeout {
+		avg = maxTimeout
+	}
+
 	return timeout
 }
 
