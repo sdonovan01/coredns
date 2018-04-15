@@ -23,10 +23,10 @@ func (p *Proxy) readTimeout() time.Duration {
 		return 2 * rtt
 	}
 	if rtt < minTimeout {
-		avg = minTimeout
+		return minTimeout
 	}
 	if rtt > maxTimeout {
-		avg = maxTimeout
+		return maxTimeout
 	}
 
 	return timeout
