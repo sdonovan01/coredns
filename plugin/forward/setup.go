@@ -5,6 +5,7 @@ import (
 	"net"
 	"strconv"
 	"time"
+        "strings"
 
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
@@ -38,7 +39,17 @@ func setup(c *caddy.Controller) error {
 
 	c.OnStartup(func() error {
 		once.Do(func() {
-			metrics.MustRegister(c, RequestCount, RcodeCount, RequestDuration, HealthcheckFailureCount, SocketGauge)
+			m := dnsserver.GetConfig(c).Handler("prometheus")
+			if m == nil {
+				return
+			}
+			if x, ok := m.(*metrics.Metrics); ok {
+				x.MustRegister(RequestCount)
+				x.MustRegister(RcodeCount)
+				x.MustRegister(RequestDuration)
+				x.MustRegister(HealthcheckFailureCount)
+				x.MustRegister(SocketGauge)
+			}
 		})
 		return f.OnStartup()
 	})
@@ -69,10 +80,20 @@ func (f *Forward) OnShutdown() error {
 // Close is a synonym for OnShutdown().
 func (f *Forward) Close() { f.OnShutdown() }
 
+func isResolvConfUsed(s []string) (bool) {
+        for _, host := range s {
+                if strings.Contains(host, "resolv.conf") {
+                        return true
+                }
+        }
+        return false
+}
+
 func parseForward(c *caddy.Controller) (*Forward, error) {
 	f := New()
 
 	protocols := map[int]int{}
+	var resolvConfUsed = false
 
 	i := 0
 	for c.Next() {
@@ -87,6 +108,7 @@ func parseForward(c *caddy.Controller) (*Forward, error) {
 		f.from = plugin.Host(f.from).Normalize()
 
 		to := c.RemainingArgs()
+		resolvConfUsed = isResolvConfUsed(to)
 		if len(to) == 0 {
 			return f, c.ArgErr()
 		}
@@ -114,7 +136,7 @@ func parseForward(c *caddy.Controller) (*Forward, error) {
 					break
 				}
 
-				// This is more of a bug in dnsutil.ParseHostPortOrFile that defaults to
+				// This is more of a bug in // dnsutil.ParseHostPortOrFile that defaults to
 				// 53 because it doesn't know about the tls:// // and friends (that should be fixed). Hence
 				// Fix the port number here, back to what the user intended.
 				if p == "53" {
@@ -145,6 +167,20 @@ func parseForward(c *caddy.Controller) (*Forward, error) {
 		}
 		f.proxies[i].SetExpire(f.expire)
 	}
+
+	// If we are pointed at a resolv.conf and we are listening on localhost
+	// dont recurse through localhost (infinite loop)
+	if (resolvConfUsed && f.ignoreLocalhost) {
+		proxies := make([]*Proxy, 0)
+		// strip out localhost entry
+		for i := range f.proxies {
+			if !strings.Contains(f.proxies[i].addr, "127.0.0.1") {
+				proxies = append(proxies, f.proxies[i])
+			}
+		}
+		f.proxies = proxies
+	}
+
 	return f, nil
 }
 
@@ -188,13 +224,18 @@ func parseBlock(c *caddy.Controller, f *Forward) error {
 			return c.ArgErr()
 		}
 		f.forceTCP = true
+	case "ignore_localhost":
+		if c.NextArg() {
+			return c.ArgErr()
+		}
+		f.ignoreLocalhost = true
 	case "tls":
 		args := c.RemainingArgs()
-		if len(args) > 3 {
+		if len(args) != 3 {
 			return c.ArgErr()
 		}
 
-		tlsConfig, err := pkgtls.NewTLSConfigFromArgs(args...)
+		tlsConfig, err := pkgtls.NewTLSConfig(args[0], args[1], args[2])
 		if err != nil {
 			return err
 		}
@@ -225,6 +266,8 @@ func parseBlock(c *caddy.Controller, f *Forward) error {
 			f.p = &random{}
 		case "round_robin":
 			f.p = &roundRobin{}
+		case "sequential":
+			f.p = &sequential{}
 		default:
 			return c.Errf("unknown policy '%s'", x)
 		}
